@@ -1,0 +1,538 @@
+<!DOCTYPE html> <html lang="fr"> <head> <meta charset="UTF-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Sophia Aventurière</title>  <style> html,body{   margin:0;   padding:0;   width:100%;   height:100%;   background:#101827;   overflow:hidden; }  body{   display:flex;   align-items:center;   justify-content:center;   font-family:Arial,sans-serif; }  #jeu{   width:100vw;   height:100vh;   display:none; }  #ecranAccueil{   position:fixed;   inset:0;   z-index:100;   width:100vw;   height:100vh;   overflow:hidden;   background:#101827; } #imageAccueil{   position:absolute;   inset:0;   display:block;   width:100%;   height:100%;   max-width:none;   max-height:none;   object-fit:contain;   object-position:center; } #boutonDemarrer{   position:absolute;   left:50%;   top:62%;   transform:translate(-50%,-50%);   border:0;   padding:0;   background:transparent;   cursor:pointer;   width:clamp(90px, 14vw, 190px);   max-height:24vh; } #boutonDemarrer img{   display:block;   width:100%;   max-height:24vh;   object-fit:contain; } #boutonDemarrer:focus-visible{   outline:4px solid #fff;   outline-offset:6px;   border-radius:8px; }  canvas{   display:block;   margin:auto; }  #aide{   position:fixed;   left:12px;   bottom:10px;   z-index:5;   color:white;   background:#0009;   padding:8px 11px;   border-radius:8px;   font-size:13px; } 
+#commandesTactiles{position:fixed;right:14px;bottom:62px;z-index:15;display:flex;flex-direction:column;align-items:flex-end;gap:8px;user-select:none;-webkit-user-select:none;touch-action:none}
+.ligneCommandes{display:flex;gap:8px;justify-content:flex-end}
+.toucheTactile{width:54px;height:54px;border:2px solid #ffffffcc;border-radius:14px;background:#14283dcc;color:#fff;font-size:25px;font-weight:bold;box-shadow:0 3px 8px #0007;touch-action:none;-webkit-tap-highlight-color:transparent}
+#toucheAcceleration{background:#a86408e8;border-color:#ffe29a;font-size:23px}
+.toucheTactile:active{background:#3575a9}
+#toucheAcceleration:active{background:#e08b13}
+@media (min-width:900px) and (pointer:fine){#commandesTactiles{opacity:.78;transform:scale(.88);transform-origin:bottom right}}
+
+</style> </head>  <body>  <div id="ecranAccueil">   <img id="imageAccueil" src="assets/sophia-aventuriere.png" alt="Sophia aventurière">   <button id="boutonDemarrer" type="button" aria-label="Lancer le jeu">     <img src="assets/bouton.png" alt="Cliquer pour jouer">   </button> </div>  <div id="jeu"></div>  
+<div id="commandesTactiles" aria-label="Commandes tactiles">
+  <div class="ligneCommandes">
+    <button class="toucheTactile" id="toucheAcceleration" type="button" aria-label="Accélérer">⚡</button>
+    <button class="toucheTactile" id="toucheSaut" type="button" aria-label="Sauter">↑</button>
+  </div>
+  <div class="ligneCommandes">
+    <button class="toucheTactile" id="toucheGauche" type="button" aria-label="Aller à gauche">←</button>
+    <button class="toucheTactile" id="toucheBas" type="button" aria-label="S'accroupir">↓</button>
+    <button class="toucheTactile" id="toucheDroite" type="button" aria-label="Aller à droite">→</button>
+  </div>
+</div>
+
+<div id="aide">   ← → : bouger · ↓ : s'accroupir · Espace / ↑ : sauter · Maj / ⚡ : accélérer · R : recommencer </div>  <script src="phaser.js"></script>  <script> (function(){  if(typeof Phaser==="undefined"){   document.body.innerHTML=     "Phaser est introuvable : vérifie que phaser.js est bien placé à côté de index.html.";   return; }  const W=960; const H=600; const MW=4200;  let monde=1; let score=0; let vies=2; let cristauxCumules=0; let prochainBonusVie=10; let transition=false;  // La musique est conservée pendant les changements de monde.
+let musiqueJeu=null; let musiqueDemarree=false;
+let sceneJeuActive=null;
+const commandesTactiles={gauche:false,droite:false,bas:false,acceleration:false};   class Jeu extends Phaser.Scene{    constructor(){     super("Jeu");   }     /* =========================================      CHARGEMENT DES FICHIERS      ========================================= */    preload(){      this.load.spritesheet(       "sophia",       "assets/sophia_sprites.png",       {         frameWidth:512,         frameHeight:341,         endFrame:8       }     );      this.load.image(       "fond1",       "assets/fond_monde1.png"     );      this.load.image(       "fond2",       "assets/fond_monde2.png"     );      this.load.image(       "fond3",       "assets/fond_monde3.png"     );      this.load.spritesheet("vilainSprites", "assets/vilain_sprites_transparent.png", { frameWidth:768, frameHeight:1024, endFrame:1 });
+      // Feuilles de sprites fournies : deux poses par personnage, côte à côte.
+      this.load.spritesheet("yetiSprites", "assets/yeti_sprites.png", { frameWidth:768, frameHeight:1024, endFrame:1 });
+      this.load.spritesheet("bonhommeNeigeSprites", "assets/bonhomme_neige_sprites.png", { frameWidth:768, frameHeight:1024, endFrame:1 });      this.load.image(       "tonneau",       "assets/tonneau.png");
+      this.load.spritesheet("singeSprites", "assets/singe_sprites.png", { frameWidth: 700, frameHeight: 800 });
+      this.load.spritesheet("oiseauSprites", "assets/oiseau_sprites_transparent.png", { frameWidth: 384, frameHeight: 320 });
+      this.load.image("noixCoco", "assets/noix_coco.png");
+      this.load.image("oeuf", "assets/oeuf.png");
+      this.load.image("mousseSprites", "assets/mousse.png");
+      this.load.image("boules", "assets/boules.png");
+      this.load.image("grossesBoules", "assets/grosses boules.png");      // Papillon animé : deux frames côte à côte (ailes ouvertes / repliées).
+      this.load.spritesheet("papillonSprites", "assets/papillon_sprites_transparent.png", {
+        frameWidth: 887,
+        frameHeight: 887
+      });      // Musique du jeu.
+this.load.audio("music2", "assets/music2.mp3");      // Effets sonores : placer ces fichiers dans le dossier assets.
+this.load.audio("touche", "assets/touche.mp3");     this.load.audio("grandir", "assets/grandir.mp3");     this.load.audio("sautSon", "assets/saut.mp3");     this.load.audio("doubleSaut", "assets/doublesaut.mp3");     this.load.audio("swing", "assets/swing.mp3");     this.load.audio("cristauxSon", "assets/cristaux.mp3");     this.load.audio("gameOverSon", "assets/game-over.mp3");   }     /* =========================================      CREATION DU NIVEAU      ========================================= */    create(){
+    sceneJeuActive=this;
+    commandesTactiles.gauche=false;
+    commandesTactiles.droite=false;
+    commandesTactiles.bas=false;
+    commandesTactiles.acceleration=false;
+    transition=false;     vies=Math.max(1, vies);     this.physics.world.resume();     this.dernierChoc=0;      this.physics.world.setBounds(       0,0,MW,H     );      this.cameras.main.setBounds(       0,0,MW,H     );      this.physics.world.gravity.y=900;      this.creerDecor();
+      this.creerTexturesMonde3();
+
+      // Animation du papillon : ailes ouvertes puis repliées.
+      if(!this.anims.exists("papillonVol")){
+        this.anims.create({
+          key:"papillonVol",
+          frames:this.anims.generateFrameNumbers("papillonSprites",{start:0,end:1}),
+          frameRate:6,
+          repeat:-1
+        });
+      }      this.plateformes=       this.physics.add.staticGroup();       // Sol continu du niveau.
+this.add.rectangle(       MW/2,576,MW,48,       monde===1?0x315d32:(monde===2?0x76502f:0x4c356d)     );      this.add.rectangle(       MW/2,556,MW,9,       monde===1?0x6fae4f:(monde===2?0xa87545:0x9a70c5)     );      const sol=this.add.rectangle(       MW/2,576,MW,48,       0xffffff,0     );      this.sol=sol;     this.physics.add.existing(sol,true);     this.plateformes.add(sol);       // Plateformes surélevées.
+const donneesPlateformes=[       [500,437,170],       [820,372,150],       [1150,437,180],       [1500,347,170],       [1850,412,180],       [2200,332,180],       [2580,412,180],       [2930,352,190],       [3300,422,180]     ];      if(monde!==3) donneesPlateformes.forEach(p=>{        this.add.rectangle(         p[0]+p[2]/2,         p[1]+10,         p[2],         20,         monde===1?0x8d6545:(monde===2?0x9b6b3f:0x8063a4)       );        const plat=this.add.rectangle(         p[0]+p[2]/2,         p[1]+10,         p[2],         20,         0xffffff,         0       );        this.physics.add.existing(plat,true);       this.plateformes.add(plat);      });      this.plateformes.refresh();
+
+      // Monde 3 uniquement : plateformes rehaussées pour Sophia et le Yéti.
+      if(monde===3){
+        const plateformeSophia=this.add.rectangle(120,470,190,18,0x9fc9ef).setDepth(4);
+        this.physics.add.existing(plateformeSophia,true);
+        this.plateformes.add(plateformeSophia);
+
+        const plateformeYeti=this.add.rectangle(MW-620,470,210,18,0x9fc9ef).setDepth(4);
+        this.physics.add.existing(plateformeYeti,true);
+        this.plateformes.add(plateformeYeti);
+        this.plateformes.refresh();
+      }
+
+      /* =====================================        SOPHIA        ===================================== */      this.sophia=this.physics.add.sprite(       120,340,"sophia",0     );      this.sophia       .setScale(.34)       .setCollideWorldBounds(true);      this.sophia.body       .setSize(150,230)       .setOffset(180,70);      this.sophiaRetrecie=false;     this.sautsUtilises=0;      this.physics.add.collider(       this.sophia,       this.plateformes     );      // 1 = droite ; -1 = gauche.
+this.directionSophia=1;       /* =====================================        ANIMATIONS DE SOPHIA        ===================================== */      if(!this.anims.exists("droite")){        // Marche vers la droite.
+this.anims.create({         key:"droite",         frames:this.anims.generateFrameNumbers(           "sophia",           {frames:[0,1,2]}         ),         frameRate:8,         repeat:-1       });        // Marche vers la gauche.
+this.anims.create({         key:"gauche",         frames:this.anims.generateFrameNumbers(           "sophia",           {frames:[4,5,6]}         ),         frameRate:8,         repeat:-1       });        // Position immobile.
+this.anims.create({         key:"repos",         frames:[{           key:"sophia",           frame:3         }],         frameRate:1,         repeat:-1       });        // Saut : la direction est gérée par flipX.
+this.anims.create({         key:"saut",         frames:[{           key:"sophia",           frame:7         }],         frameRate:1,         repeat:-1       });        // Accroupissement : orientation droite/gauche
+      // gérée par flipX.
+this.anims.create({         key:"accroupi",         frames:[{           key:"sophia",           frame:8         }],         frameRate:1,         repeat:-1       });      }       /* =====================================        COMMANDES        ===================================== */      this.cursors=       this.input.keyboard.createCursorKeys();      this.space=this.input.keyboard.addKey(       Phaser.Input.Keyboard.KeyCodes.SPACE     );      this.keyR=this.input.keyboard.addKey(       Phaser.Input.Keyboard.KeyCodes.R     );
+    this.toucheMaj=this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);      // Un clic = saut ; un double-clic = double saut avec son dédié.
+this.dernierClic = 0;     this.input.on("pointerdown",()=>{       const maintenant = this.time.now;       if(maintenant - this.dernierClic < 350){         this.dernierClic = 0;         this.tenterSaut(true);       }else{         this.dernierClic = maintenant;         this.tenterSaut(false);       }     });       /* =====================================        MUSIQUE EN BOUCLE        ===================================== */      if(!musiqueJeu){        musiqueJeu=this.sound.add(         "music2",         {           loop:true,           volume:0.45         }       );      }      // On tente de lancer la musique dès le démarrage de la partie.
+    // Si le navigateur bloque la lecture automatique, on réessaie dès
+    // la première interaction (règle imposée par certains navigateurs).
+const lancerMusique=()=>{       if(!musiqueJeu) return;       if(!musiqueJeu.isPlaying){         musiqueJeu.play();       }       musiqueDemarree=true;     };      // Tentative immédiate au lancement du jeu.
+lancerMusique();      // Secours pour les navigateurs qui interdisent l'autoplay.
+this.input.once("pointerdown",lancerMusique);     this.input.keyboard.once("keydown",lancerMusique);     if(this.sound.locked && this.sound.once){       this.sound.once("unlocked",lancerMusique);     }       /* =====================================        TABLEAU DE BORD        ===================================== */      this.hud=this.add.text(       16,14,"",       {         font:"bold 20px Arial",         color:"#fff",         stroke:"#203044",         strokeThickness:4       }     )     .setScrollFactor(0)     .setDepth(20);      this.hudVies=this.add.text(       W-8,14,"",       {         font:"bold 27px Arial",         color:"#ff0000",         stroke:"#5b0000",         strokeThickness:3       }     )     .setOrigin(1,0)     .setScrollFactor(0)     .setDepth(20);      this.cameras.main.startFollow(       this.sophia,       true,       .08,       .08     );       /* =====================================        PORTAIL        ===================================== */      this.add.ellipse(       MW-215,475,90,145,       0x46e8ff,.35     ).setDepth(5);      this.add.ellipse(       MW-215,475,76,130,       0,0     )     .setStrokeStyle(8,0x9df7ff)     .setDepth(6);      if(monde===3){        this.add.text(         MW-330,365,         "FIN DE L'AVENTURE",         {           font:"bold 18px Arial",           color:"#fff",           stroke:"#203044",           strokeThickness:4         }       ).setDepth(5);      }       /* =====================================        CRISTAUX        ===================================== */      this.gemmes=[];      for(let i=0;i<12;i++){        const x=360+i*300;       const y=315+(i%3)*35;        const g=this.add.polygon(         x,y,         [0,12,12,0,24,12,12,27],         monde===1?0xffe35b:0x7efcff       )       .setStrokeStyle(2,0xffffff)       .setDepth(4);        g.prise=false;       this.gemmes.push(g);      }       /* =====================================        VILAINS        ===================================== */      this.vilains=this.physics.add.group();
+      this.projectilesHostiles=this.physics.add.group({allowGravity:true});
+      this.plateformesMobiles=this.physics.add.group({allowGravity:false,immovable:true});
+
+      if(monde===3){
+        // Quatre plateformes mobiles réservées aux bonshommes de neige.
+        this.plateformesNeige=[];
+        [
+          {x:650,y:430,amplitude:115,vitesse:55},
+          {x:1430,y:375,amplitude:100,vitesse:48},
+          {x:2240,y:420,amplitude:120,vitesse:60},
+          {x:3020,y:370,amplitude:105,vitesse:52}
+        ].forEach((p,i)=>{
+          const plat=this.add.rectangle(p.x,p.y,158,18,0x9fc9ef).setDepth(4);
+          this.physics.add.existing(plat);
+          plat.body.setAllowGravity(false);
+          plat.body.setImmovable(true);
+          plat.setData("origineX",p.x);
+          plat.setData("amplitude",p.amplitude);
+          plat.setData("vitessePlateforme",p.vitesse);
+          plat.setData("directionPlateforme",i%2===0?1:-1);
+          plat.setData("dernierX",p.x);
+          this.plateformesMobiles.add(plat);
+          this.plateformesNeige.push(plat);
+        });
+        this.physics.add.collider(this.sophia,this.plateformesMobiles);
+
+        // Les petits bonshommes de neige glissent sur leurs plateformes.
+        const neige=[
+          {x:650,plate:0},{x:1430,plate:1},
+          {x:2240,plate:2},{x:3020,plate:3}
+        ];
+        neige.forEach((p,i)=>{
+          const plat=this.plateformesNeige[p.plate];
+          const e=this.physics.add.sprite(p.x,plat.y-43,"bonhommeNeigeSprites",0);
+          e.setDisplaySize(66,86).setDepth(6);
+          e.body.setAllowGravity(false);
+          e.body.setSize(e.width*0.72,e.height*0.8,true);
+          e.setData("typeMonde3","bonhommeNeige");
+          e.setData("plateformeMobile",plat);
+          e.setData("decalageX",Phaser.Math.Between(-24,24));
+          e.setData("directionPatrouille",i%2===0?1:-1);
+          e.setData("vitessePatrouille",Phaser.Math.Between(28,48));
+          this.vilains.add(e);
+          if(this.anims.exists("bonhommeNeigeCligne")) e.anims.play("bonhommeNeigeCligne",true);
+          this.programmerLancerBouleNeige(e);
+        });
+
+        // Une seule mousse : patrouille au sol et changements de direction brusques.
+        const mousse=this.physics.add.sprite(720,520,"mousseSprites");
+        mousse.setDisplaySize(76,68).setDepth(6);
+        mousse.body.setSize(mousse.width*0.78,mousse.height*0.78,true);
+        mousse.setCollideWorldBounds(true);
+        mousse.setData("typeMonde3","mousse");
+        mousse.setData("limiteGauche",360);
+        mousse.setData("limiteDroite",MW-520);
+        mousse.setData("directionPatrouille",1);
+        mousse.setData("vitessePatrouille",Phaser.Math.Between(85,145));
+        mousse.setData("changementSuivant",this.time.now+Phaser.Math.Between(400,1300));
+        this.vilains.add(mousse);
+        this.physics.add.collider(mousse,this.sol);
+
+        // Animation du Yéti : alternance des deux poses du sprite sheet
+        // pour donner l'impression qu'il agite les bras.
+        if(!this.anims.exists("yetiBras")){
+          this.anims.create({
+            key:"yetiBras",
+            frames:this.anims.generateFrameNumbers("yetiSprites",{start:0,end:1}),
+            frameRate:4,
+            repeat:-1
+          });
+        }
+
+        // Un seul Yéti, posé sur une plateforme à la même hauteur que celle de Sophia.
+        const yeti=this.physics.add.sprite(MW-620,386,"yetiSprites",0);
+        yeti.setDisplaySize(142,150).setDepth(6);
+        yeti.anims.play("yetiBras",true);
+        yeti.body.setSize(yeti.width*0.72,yeti.height*0.78,true);
+        yeti.setCollideWorldBounds(true);
+        yeti.setData("typeMonde3","yetiSprites");
+        yeti.setData("limiteGauche",MW-830);
+        yeti.setData("limiteDroite",MW-450);
+        yeti.setData("directionPatrouille",-1);
+        yeti.setData("vitessePatrouille",42);
+        this.vilains.add(yeti);
+        this.physics.add.collider(yeti,this.plateformes);
+        this.programmerSautVilain(yeti);
+        this.programmerLancerBouleNeige(yeti);
+
+        this.physics.add.overlap(this.sophia,this.vilains,this.toucherVilain,null,this);
+        this.physics.add.overlap(this.sophia,this.projectilesHostiles,this.toucherVilain,null,this);
+        this.physics.add.collider(this.projectilesHostiles,this.sol,(p)=>p.destroy());
+      }else{
+        const emplacementsVilains=[
+          {x:585,y:426},{x:895,y:361},{x:1240,y:426},
+          {x:1585,y:336},{x:1940,y:401},{x:2290,y:321},
+          {x:2670,y:401},{x:3025,y:341},{x:3390,y:411}
+        ];
+        if(!this.anims.exists("animationVilainVert")){
+          this.anims.create({key:"animationVilainVert",frames:this.anims.generateFrameNumbers("vilainSprites",{start:0,end:1}),frameRate:2,repeat:-1});
+        }
+        if(monde===2 && !this.anims.exists("singeBras")){
+          this.anims.create({key:"singeBras",frames:this.anims.generateFrameNumbers("singeSprites",{start:0,end:1}),frameRate:2,repeat:-1});
+        }
+        emplacementsVilains.forEach((pos,index)=>{
+          if(index%2!==0) return;
+          const cle=monde===2?"singeSprites":"vilainSprites";
+          const taille=monde===2?66:58;
+          const e=this.physics.add.sprite(pos.x,pos.y,cle,0);
+          e.setDisplaySize(taille,taille).setDepth(6).setCollideWorldBounds(true);
+          e.body.setSize(e.width*0.78,e.height*0.78,true);
+          if(monde===2) e.anims.play("singeBras",true);
+          else e.anims.play("animationVilainVert",true);
+          const p=donneesPlateformes[index], demi=e.displayWidth/2;
+          e.setY(p[1]-e.displayHeight/2);
+          e.setData("limiteGauche",p[0]+demi);
+          e.setData("limiteDroite",p[0]+p[2]-demi);
+          e.setData("directionPatrouille",index%2===0?1:-1);
+          e.setData("vitessePatrouille",Phaser.Math.Between(45,75));
+          this.vilains.add(e);
+          this.programmerSautVilain(e);
+        });
+        this.physics.add.collider(this.vilains,this.plateformes);
+        this.physics.add.overlap(this.sophia,this.vilains,this.toucherVilain,null,this);
+      }
+
+      // Les tonneaux restent dans les mondes 1 et 3, mais disparaissent du monde 2.
+this.tonneaux=this.physics.add.group();
+      if(monde===1){
+        const emplacementsTonneaux=[780,1370,1770,2440,2820,3200,3730];
+        // Difficulté réduite : on retire un tonneau sur deux.
+        emplacementsTonneaux.filter((x,index)=>index % 2 === 0).forEach((x,index)=>{
+          const tonneau=this.physics.add.image(x,526,"tonneau");
+          tonneau.setDisplaySize(48,48).setCollideWorldBounds(true).setBounce(0).setDepth(6);
+          tonneau.setData("indexTonneau",index);
+          tonneau.body.setSize(0.82*tonneau.width,0.82*tonneau.height);
+          this.tonneaux.add(tonneau);
+          const sensInitial=Phaser.Math.Between(0,1)===0?-1:1;
+          tonneau.setVelocityX(sensInitial*Phaser.Math.Between(65,115));
+          this.programmerDeplacementTonneau(tonneau);
+        });
+        this.physics.add.collider(this.tonneaux,this.sol);
+        this.physics.add.overlap(this.sophia,this.tonneaux,this.toucherVilain,null,this);
+      }
+
+      // Monde 2 : les singes lancent des noix de coco et un oiseau vole en lâchant des œufs.
+if(monde===2){
+        this.vilains.getChildren().forEach(singe=>this.programmerLancerCoco(singe));
+        this.oiseaux=[];
+        this.anims.create({key:"oiseauVol",frames:this.anims.generateFrameNumbers("oiseauSprites",{start:0,end:1}),frameRate:5,repeat:-1});
+        // Deux oiseaux à des hauteurs différentes pour augmenter la difficulté.
+        [150,220].forEach((hauteur,index)=>{
+          const oiseau=this.physics.add.sprite(Phaser.Math.Between(260+index*260,650+index*260),hauteur,"oiseauSprites",0);
+          oiseau.setDisplaySize(88,68).setDepth(7).setFlipX(false);
+          oiseau.body.setAllowGravity(false);
+          oiseau.setVelocityX((index===0?1:-1)*Phaser.Math.Between(90,130));
+          oiseau.setCollideWorldBounds(true);
+          oiseau.setBounceX(1);
+          oiseau.anims.play("oiseauVol",true);
+          this.oiseaux.push(oiseau);
+        });
+        this.oiseau=this.oiseaux[0];
+        this.programmerLacherOeuf();
+        this.physics.add.overlap(this.sophia,this.projectilesHostiles,this.toucherVilain,null,this);
+        this.physics.add.collider(this.projectilesHostiles,this.sol,(projectile)=>projectile.destroy());
+      }
+
+      this.mettreHud();      // Le papillon magique arrive après 6 secondes, puis revient périodiquement.
+this.papillonApparu=false;     this.time.delayedCall(6000,()=>this.faireApparaitrePapillon());   }     programmerLancerBouleNeige(ennemi){
+      const estYeti=ennemi.getData("typeMonde3")==="yetiSprites";
+      const delai=estYeti?Phaser.Math.Between(1700,2400):Phaser.Math.Between(2200,3400);
+      this.time.delayedCall(delai,()=>{
+        if(!ennemi.active || !ennemi.body || transition || monde!==3) return;
+        if(estYeti){
+          // Grosses boules : très visibles et lancées horizontalement.
+          const boule=this.physics.add.image(ennemi.x,ennemi.y-18,"grossesBoules");
+          boule.setDisplaySize(96,96).setDepth(8);
+          boule.body.setAllowGravity(false);
+          boule.body.setCircle(42);
+          this.projectilesHostiles.add(boule);
+          const direction=this.sophia.x<ennemi.x?-1:1;
+          boule.setVelocity(direction*Phaser.Math.Between(320,390),0);
+        }else{
+          // Petites boules : elles partent d'un côté choisi au hasard,
+          // et non sous le bonhomme de neige.
+          const direction=Phaser.Math.Between(0,1)===0?-1:1;
+          const boule=this.physics.add.image(
+            ennemi.x+direction*34,
+            ennemi.y+Phaser.Math.Between(-8,8),
+            "boules"
+          );
+          boule.setDisplaySize(42,42).setDepth(8);
+          boule.body.setAllowGravity(true);
+          boule.body.setCircle(18);
+          this.projectilesHostiles.add(boule);
+          boule.setVelocity(
+            direction*Phaser.Math.Between(150,220),
+            Phaser.Math.Between(-35,25)
+          );
+        }
+        this.programmerLancerBouleNeige(ennemi);
+      });
+    }
+
+        programmerLancerCoco(singe){
+      const delai=Phaser.Math.Between(1200,2600);
+      this.time.delayedCall(delai,()=>{
+        if(!singe.active || !singe.body || transition || monde!==2) return;
+        const coco=this.physics.add.image(singe.x,singe.y-12,"noixCoco");
+        coco.setDisplaySize(22,24).setDepth(8);
+        coco.body.setAllowGravity(true);
+        coco.body.setSize(coco.width*0.75,coco.height*0.75,true);
+        this.projectilesHostiles.add(coco);
+        const direction=this.sophia.x<singe.x?-1:1;
+        coco.setVelocity(direction*Phaser.Math.Between(150,210),-Phaser.Math.Between(90,180));
+        this.programmerLancerCoco(singe);
+      });
+    }
+
+    programmerLacherOeuf(){
+      const delai=Phaser.Math.Between(900,1800);
+      this.time.delayedCall(delai,()=>{
+        if(!this.oiseaux || transition || monde!==2) return;
+        const oiseauxActifs=this.oiseaux.filter(oiseau=>oiseau.active);
+        if(!oiseauxActifs.length) return;
+        const oiseau=Phaser.Utils.Array.GetRandom(oiseauxActifs);
+        const oeuf=this.physics.add.image(oiseau.x,oiseau.y+24,"oeuf");
+        oeuf.setDisplaySize(17,22).setDepth(8);
+        oeuf.body.setAllowGravity(true);
+        oeuf.body.setSize(oeuf.width*0.75,oeuf.height*0.8,true);
+        this.projectilesHostiles.add(oeuf);
+        oeuf.setVelocity(Phaser.Math.Between(-25,25),Phaser.Math.Between(30,70));
+        this.programmerLacherOeuf();
+      });
+    }
+
+    jouerSon(cle){     if(this.cache.audio.exists(cle)){       this.sound.play(cle);     }   }     faireApparaitrePapillon(){     if(transition || this.papillonApparu || !this.sophia || !this.sophia.active) return;     this.papillonApparu=true;      const departX=Math.min(       Math.max(this.cameras.main.scrollX+W-40, 80),       MW-40     );     const hauteurDepart=Math.min(H-145, Math.max(340, H*0.66));     const papillon=this.physics.add.sprite(departX,hauteurDepart,"papillonSprites");     this.papillon=papillon;     papillon.setDisplaySize(48,38);
+     papillon.play("papillonVol");     papillon.setDepth(12);     papillon.body.setAllowGravity(false);     papillon.setVelocity(0,0);     papillon.setData("papillon",true);      // Le papillon vole plus bas et zigzague nettement de haut en bas.
+this.time.delayedCall(1800,()=>{       if(!papillon.active) return;       // Le papillon part vers la gauche, puis fera demi-tour
+      // pour revenir jusqu'au cercle/portail à droite.
+papillon.setVelocityX(-190);       papillon.setData("retourDroite", false);       this.tweens.add({         targets:papillon,         y:papillon.y-55,         duration:650,         ease:"Sine.easeInOut",         yoyo:true,         repeat:-1       });     });      this.physics.add.overlap(this.sophia,papillon,()=>{       if(!papillon.active || papillon.getData("dejaTouche") || transition) return;        // Dès que Sophia touche le papillon, il disparaît définitivement.
+papillon.setData("dejaTouche",true);       this.jouerSon("swing");       papillon.destroy();       if(this.papillon===papillon) this.papillon=null;       this.papillonApparu=true;        if(this.sophiaRetrecie){         this.sophiaRetrecie=false;         this.sophia.setScale(.34);         this.jouerSon("grandir");         this.sophia.body.setSize(150,230);         this.sophia.body.setOffset(180,70);         vies++; // Vie supplémentaire offerte par le papillon, cumulable.
+       }        this.mettreHud();     });      // S'il n'est pas touché pendant son premier trajet, le papillon     // fait demi-tour vers le portail, s'y arrête et attend Sophia.
+}     /* =========================================      DECOR      ========================================= */    creerTexturesMonde3(){
+      // Les sprites du monde 3 sont chargés depuis les PNG du dossier assets.
+    }
+
+        creerDecor(){      const cle=monde===1?"fond1":(monde===2?"fond2":"fond3");      if(this.textures.exists(cle)){        // Conserve les proportions de l'image : elle est mise à l'échelle       // selon la hauteur puis répétée horizontalement, sans écraser le décor.
+const source=this.textures.get(cle).getSourceImage();       const echelle=H/source.height;       this.add.tileSprite(0,0,MW,H,cle)         .setOrigin(0,0)         .setTileScale(echelle,echelle)         .setDepth(-10);      }else{        const g=this.add.graphics().setDepth(-10);        g.fillStyle(         monde===1?0x78c9ef:0x241e4c       );        g.fillRect(0,0,MW,H);        g.fillStyle(         monde===1?0xffe58a:0xf5edc2       );        g.fillCircle(330,95,35);      }    }     /* =========================================      SAUTS DES VILAINS      ========================================= */    programmerSautVilain(vilain){      const delai=Phaser.Math.Between(       700,2200     );      this.time.delayedCall(delai,()=>{        if(         !vilain.active ||         !vilain.body ||         transition       ){         return;       }        const auSol=         vilain.body.blocked.down ||         vilain.body.touching.down;        if(auSol){          // Petit saut vertical sur place : la patrouille horizontale
+        // continue d'être gérée séparément dans update().
+vilain.setVelocityY(vilain.getData("typeMonde3")==="yetiSprites" ? -520 : -Phaser.Math.Between(120,170));        }        this.programmerSautVilain(vilain);      });    }     /* =========================================      DEPLACEMENT ALEATOIRE DES TONNEAUX      ========================================= */    programmerDeplacementTonneau(tonneau){      const delai=Phaser.Math.Between(900,2300);      this.time.delayedCall(delai,()=>{        if(         !tonneau.active ||         !tonneau.body ||         transition       ){         return;       }        const sens=Phaser.Math.Between(0,1)===0?-1:1;       tonneau.setVelocityX(         sens*Phaser.Math.Between(65,115)       );        this.programmerDeplacementTonneau(tonneau);     });    }     /* =========================================      COLLISION AVEC UN VILAIN OU UN TONNEAU      ========================================= */    toucherVilain(sophia,obstacle){
+      if(transition || !sophia || !sophia.active || !sophia.body ||
+         !obstacle || !obstacle.active || this.time.now-this.dernierChoc<900) return;
+
+      // Les noix de coco et les œufs disparaissent au contact. Il ne faut
+      // surtout pas appeler setVelocityX() sur eux après leur destruction :
+      // leur corps physique n'existe alors plus, ce qui provoquait le crash.
+      const estProjectile = obstacle.texture &&
+        (obstacle.texture.key==="noixCoco" || obstacle.texture.key==="oeuf" || obstacle.texture.key==="bouleNeige" || obstacle.texture.key==="boules" || obstacle.texture.key==="grossesBoules");
+      const sens=sophia.x<obstacle.x?-1:1;
+      if(estProjectile){
+        obstacle.destroy();
+      }
+
+      this.dernierChoc=this.time.now;
+      this.jouerSon("touche");
+      vies--;
+
+      if(vies<=0){
+        transition=true;
+        if(musiqueJeu && musiqueJeu.isPlaying) musiqueJeu.stop();
+        this.physics.world.pause();
+        this.scene.start("GameOver");
+        return;
+      }
+
+      if(!this.sophiaRetrecie){
+        this.sophiaRetrecie=true;
+        this.sophia.setScale(.20);
+        this.sophia.body.setSize(150,230);
+        this.sophia.body.setOffset(180,70);
+      }
+
+      sophia.setVelocityX(sens*300);
+      if(sophia.body.blocked.down || sophia.body.touching.down){
+        sophia.setVelocityY(-280);
+        this.sautsUtilises=1;
+      }
+
+      // Seuls les obstacles encore actifs et possédant un corps physique
+      // peuvent être repoussés. Les projectiles détruits sont ignorés.
+      if(!estProjectile && obstacle.active && obstacle.body &&
+         obstacle.body.enable && typeof obstacle.setVelocityX==="function"){
+        obstacle.setVelocityX(-sens*120);
+      }
+      this.mettreHud();
+    }    tenterSaut(doubleClic=false){     if(transition || !this.sophia || !this.sophia.active) return;     const auSol=this.sophia.body.blocked.down || this.sophia.body.touching.down;     if(auSol){       this.sautsUtilises=1;       this.sophia.setVelocityY(-460);       if(!doubleClic) this.jouerSon("sautSon");     }else if(this.sautsUtilises<2){       this.sautsUtilises=2;       this.sophia.setVelocityY(-600);       this.jouerSon(doubleClic ? "doubleSaut" : "sautSon");     }   }    update(){      if(transition)return;
+
+      // Sécurité : si Sophia tombe hors du niveau, elle revient au départ du monde.
+      if(this.sophia && this.sophia.active && this.sophia.y>H+100){
+        vies--;
+        if(vies<=0){
+          transition=true;
+          if(musiqueJeu && musiqueJeu.isPlaying) musiqueJeu.stop();
+          this.physics.world.pause();
+          this.scene.start("GameOver");
+          return;
+        }
+        this.sophia.setPosition(120,340);
+        this.sophia.setVelocity(0,0);
+        this.sophia.setAlpha(1);
+        this.sautsUtilises=0;
+        this.dernierChoc=this.time.now;
+        this.mettreHud();
+      }
+
+      // Les projectiles qui ne touchent pas Sophia sont sans conséquence.
+      // On les supprime dès qu'ils sortent du niveau ou tombent sous l'écran.
+      if(this.projectilesHostiles){
+        this.projectilesHostiles.getChildren().forEach(projectile=>{
+          if(!projectile.active || !projectile.body) return;
+          if(projectile.y > H+80 || projectile.x < -100 || projectile.x > MW+100 || projectile.y < -150){
+            projectile.destroy();
+          }
+        });
+      }
+
+      if(this.papillon && this.papillon.active){       // S'il atteint le bord gauche visible, il fait demi-tour vers la droite.
+if(!this.papillon.getData("retourDroite") &&          this.papillon.x < this.cameras.main.scrollX + 25){         this.papillon.setData("retourDroite", true);         this.papillon.setVelocityX(190);       }        // Arrivé au cercle, il s'arrête et attend le passage de Sophia.
+const portailX = MW - 215;       if(this.papillon.getData("retourDroite") &&          this.papillon.x >= portailX){         this.papillon.setX(portailX);         this.papillon.setVelocity(0,0);         this.papillon.setData("auPortail", true);       }     }      if(this.oiseaux){
+        this.oiseaux.forEach(oiseau=>{if(oiseau.active) oiseau.setFlipX(oiseau.body.velocity.x < 0);});
+      }
+
+      // Plateformes mobiles : les bonshommes de neige restent dessus.
+      if(monde===3 && this.plateformesNeige){
+        this.plateformesNeige.forEach(plat=>{
+          if(!plat.active || !plat.body) return;
+          const oldX=plat.getData("dernierX");
+          let dir=plat.getData("directionPlateforme")||1;
+          const origin=plat.getData("origineX"), amp=plat.getData("amplitude");
+          if(plat.x>=origin+amp) dir=-1;
+          if(plat.x<=origin-amp) dir=1;
+          plat.setData("directionPlateforme",dir);
+          const nx=Phaser.Math.Clamp(plat.x+dir*plat.getData("vitessePlateforme")*(this.game.loop.delta/1000),origin-amp,origin+amp);
+          plat.x=nx;
+          const dx=nx-oldX;
+          plat.setData("dernierX",nx);
+          this.vilains.getChildren().forEach(e=>{
+            if(!e.active || e.getData("plateformeMobile")!==plat) return;
+            let off=e.getData("decalageX")||0;
+            let sens=e.getData("directionPatrouille")||1;
+            off+=sens*e.getData("vitessePatrouille")*(this.game.loop.delta/1000);
+            if(off>plat.width*0.27){off=plat.width*0.27;sens=-1;}
+            if(off< -plat.width*0.27){off=-plat.width*0.27;sens=1;}
+            e.setData("decalageX",off);
+            e.setData("directionPatrouille",sens);
+            e.setPosition(nx+off,plat.y-e.displayHeight/2-1);
+            e.body.position.set(e.x - e.displayOriginX, e.y - e.displayOriginY);
+            e.body.prev.copy(e.body.position);
+          });
+        });
+      }
+      // La mousse change brutalement de sens à intervalles irréguliers.
+      if(monde===3 && this.vilains){
+        this.vilains.getChildren().forEach(e=>{
+          if(e.active && e.getData("typeMonde3")==="mousse" && this.time.now>=e.getData("changementSuivant")){
+            e.setData("directionPatrouille",Phaser.Math.Between(0,1)?1:-1);
+            e.setData("vitessePatrouille",Phaser.Math.Between(85,155));
+            e.setData("changementSuivant",this.time.now+Phaser.Math.Between(350,1250));
+          }
+        });
+      }
+
+      // Patrouille horizontale : chaque vilain fait demi-tour aux bords
+    // et reste dans les limites de sa propre plateforme.
+if(this.vilains){       this.vilains.getChildren().forEach(vilain=>{         if(!vilain.active || !vilain.body)return;
+         if(monde===3 && vilain.getData("typeMonde3")==="bonhommeNeige") return;
+         const gauche=vilain.getData("limiteGauche");         const droite=vilain.getData("limiteDroite");         let direction=vilain.getData("directionPatrouille") || 1;         const vitesse=vilain.getData("vitessePatrouille") || 60;          if(vilain.x <= gauche){           vilain.setX(gauche);           direction=1;         }else if(vilain.x >= droite){           vilain.setX(droite);           direction=-1;         }          vilain.setData("directionPatrouille", direction);         vilain.setVelocityX(direction * vitesse);       });     }      // Recommencer l'aventure.
+if(       Phaser.Input.Keyboard.JustDown(this.keyR)     ){        monde=1;       score=0;       vies=2;       transition=false;       this.scene.start("Jeu");       return;      }       const auSol=       this.sophia.body.blocked.down ||       this.sophia.body.touching.down;      const gauche=this.cursors.left.isDown || commandesTactiles.gauche;
+      const droite=this.cursors.right.isDown || commandesTactiles.droite;
+      const bas=this.cursors.down.isDown || commandesTactiles.bas;
+      const acceleration=this.toucheMaj.isDown || commandesTactiles.acceleration;
+      const vitesseSophia=acceleration ? 380 : 230;       /* =====================================        DIRECTION DE SOPHIA        ===================================== */      if(gauche){       this.directionSophia=-1;     }else if(droite){       this.directionSophia=1;     }       /* =====================================        SAUT        ===================================== */      if(auSol && this.sophia.body.velocity.y===0) this.sautsUtilises=0;      if(       Phaser.Input.Keyboard.JustDown(this.space) ||       Phaser.Input.Keyboard.JustDown(this.cursors.up)     ){       this.tenterSaut();     }       /* =====================================        DEPLACEMENTS ET ACCROUPISSEMENT        ===================================== */      if(auSol && bas){        // Accroupi dans la direction choisie.
+this.sophia.setVelocityX(0);        this.sophia         .setFlipX(this.directionSophia===-1)         .anims.play("accroupi",true);      }else if(gauche){        this.sophia.setVelocityX(-vitesseSophia);        // Les frames 4, 5 et 6 sont déjà
+      // destinées à la marche vers la gauche.
+this.sophia.setFlipX(false);        if(auSol){         this.sophia.anims.play("gauche",true);       }      }else if(droite){        this.sophia.setVelocityX(vitesseSophia);       this.sophia.setFlipX(false);        if(auSol){         this.sophia.anims.play("droite",true);       }      }else{        this.sophia.setVelocityX(0);        if(auSol){          this.sophia           .setFlipX(this.directionSophia===-1)           .anims.play("repos",true);        }      }       /* =====================================        ANIMATION DE SAUT        ===================================== */      if(!auSol){        this.sophia         .setFlipX(this.directionSophia===-1)         .anims.play("saut",true);      }       /* =====================================        RAMASSAGE DES CRISTAUX        ===================================== */      this.gemmes.forEach(g=>{        if(         !g.prise &&         Math.abs(this.sophia.x-g.x)<42 &&         Math.abs(this.sophia.y-g.y)<48       ){          g.prise=true;         g.setVisible(false);         this.jouerSon("cristauxSon");          score++;          cristauxCumules++;          if(cristauxCumules>=prochainBonusVie){            vies++;            prochainBonusVie+=10;            this.jouerSon("grandir");          }          this.mettreHud();        }      });       /* =====================================        PASSAGE AU MONDE SUIVANT        ===================================== */      if(this.sophia.x>=MW-270){        if(monde<3){          transition=true;          this.add.rectangle(           480,300,W,H,0x101827         )         .setScrollFactor(0)         .setDepth(30);          this.add.text(           480,250,           "Passage vers le monde "+(monde+1)+"...",           {             font:"bold 30px Arial",             color:"#fff"           }         )         .setOrigin(.5)         .setScrollFactor(0)         .setDepth(31);          this.time.delayedCall(1000,()=>{            monde++;           score=0;           // Les vies gagnées sont conservées en changeant de monde.
+           transition=false;            this.scene.restart();          });        }else{          transition=true;          this.add.rectangle(           480,300,W,H,0x101827,.82         )         .setScrollFactor(0)         .setDepth(30);          this.add.text(           480,225,           "Bravo ! Aventure terminée !",           {             font:"bold 34px Arial",             color:"#fff1a8",             align:"center"           }         )         .setOrigin(.5)         .setScrollFactor(0)         .setDepth(31);          const boutonRejouer=this.add.text(           480,320,           "↻  REJOUER  ↻",           {             font:"bold 28px Arial",             color:"#ffffff",             backgroundColor:"#2d8a50",             padding:{x:24,y:14}           }         )         .setOrigin(.5)         .setScrollFactor(0)         .setDepth(32)         .setInteractive({useHandCursor:true});          boutonRejouer.on("pointerover",()=>boutonRejouer.setStyle({backgroundColor:"#40ad67"}));         boutonRejouer.on("pointerout",()=>boutonRejouer.setStyle({backgroundColor:"#2d8a50"}));          let relanceEnCours=false;         const relancerPartie=()=>{           if(relanceEnCours) return;           relanceEnCours=true;           monde=1;           score=0;           vies=2;           cristauxCumules=0;           prochainBonusVie=10;           transition=false;           this.scene.restart();         };         boutonRejouer.on("pointerdown",relancerPartie);        }      }    }     /* =========================================      MISE A JOUR DU SCORE      ========================================= */    mettreHud(){      if(this.hud){        this.hud.setText(         "Sophia Aventurière | Monde "+         monde+         " | Cristaux : "+         score       );     }      if(this.hudVies){       this.hudVies.setText("♥".repeat(Math.max(0,vies)));      }    }  }   class GameOver extends Phaser.Scene{
+   constructor(){ super("GameOver"); }
+   create(){
+     this.cameras.main.setBackgroundColor("#101827");
+     if(this.cache.audio.exists("gameOverSon")) this.sound.play("gameOverSon",{volume:1});
+     this.add.text(480,145,"GAME OVER",{font:"bold 52px Arial",color:"#ff6262",stroke:"#000",strokeThickness:6}).setOrigin(.5);
+     this.add.text(480,215,"Plus de vies !",{font:"25px Arial",color:"#ffffff"}).setOrigin(.5);
+     this.add.text(480,270,"Que veux-tu faire ?",{font:"bold 23px Arial",color:"#fff1a8"}).setOrigin(.5);
+
+     const creerBouton=(y,texte,couleur,action)=>{
+       const bouton=this.add.text(480,y,texte,{font:"bold 22px Arial",color:"#ffffff",backgroundColor:couleur,padding:{x:22,y:14},align:"center"}).setOrigin(.5).setInteractive({useHandCursor:true});
+       bouton.on("pointerover",()=>bouton.setStyle({backgroundColor:"#40ad67"}));
+       bouton.on("pointerout",()=>bouton.setStyle({backgroundColor:couleur}));
+       bouton.on("pointerdown",action);
+       return bouton;
+     };
+     let choixEnCours=false;
+     const recommencerTout=()=>{
+       if(choixEnCours) return; choixEnCours=true;
+       monde=1; score=0; vies=2; cristauxCumules=0; prochainBonusVie=10; transition=false;
+       if(musiqueJeu && musiqueJeu.isPlaying) musiqueJeu.stop(); musiqueJeu=null;
+       this.scene.stop("GameOver"); this.scene.stop("Jeu"); this.scene.start("Jeu");
+     };
+     const reprendreMonde=()=>{
+       if(choixEnCours) return; choixEnCours=true;
+       // Reprendre au début du monde où Sophia a perdu, avec deux vies.
+       vies=2; score=0; transition=false;
+       if(musiqueJeu && musiqueJeu.isPlaying) musiqueJeu.stop(); musiqueJeu=null;
+       this.scene.stop("GameOver"); this.scene.stop("Jeu"); this.scene.start("Jeu");
+     };
+     creerBouton(345,"1.  RECOMMENCER LE JEU","#2d8a50",recommencerTout);
+     creerBouton(425,"2.  REPRENDRE LE MONDE "+monde,"#245d91",reprendreMonde);
+     this.input.keyboard.on("keydown-ENTER",recommencerTout);
+   }
+ }
+
+/* =============================================    DEMARRAGE DU JEU    ============================================= */  let partieLancee=false; let jeuPhaser=null;  function lancerJeu(){   if(partieLancee) return;   partieLancee=true;   document.getElementById("ecranAccueil").style.display="none";   document.getElementById("jeu").style.display="block";    jeuPhaser=new Phaser.Game({    type:Phaser.AUTO,    parent:"jeu",    width:W,   height:H,    backgroundColor:"#8bd5f5",    physics:{     default:"arcade",     arcade:{       gravity:{y:900},       debug:false     }   },    scale:{     mode:Phaser.Scale.FIT,     autoCenter:Phaser.Scale.CENTER_BOTH   },    scene:[Jeu,GameOver]    }); }  // Commandes tactiles : maintenir un bouton pour continuer le déplacement.
+  function brancherBoutonTactile(id, action){
+    const bouton=document.getElementById(id);
+    if(!bouton) return;
+    const debut=(event)=>{
+      event.preventDefault();
+      if(action==="saut"){
+        if(sceneJeuActive && sceneJeuActive.tenterSaut) sceneJeuActive.tenterSaut();
+        return;
+      }
+      commandesTactiles[action]=true;
+      try{bouton.setPointerCapture(event.pointerId);}catch(e){}
+    };
+    const fin=(event)=>{
+      if(action!=="saut") commandesTactiles[action]=false;
+      if(event && event.preventDefault) event.preventDefault();
+    };
+    bouton.addEventListener("pointerdown",debut);
+    ["pointerup","pointercancel","lostpointercapture"].forEach(type=>bouton.addEventListener(type,fin));
+    bouton.addEventListener("contextmenu",event=>event.preventDefault());
+  }
+  brancherBoutonTactile("toucheGauche","gauche");
+  brancherBoutonTactile("toucheDroite","droite");
+  brancherBoutonTactile("toucheBas","bas");
+  brancherBoutonTactile("toucheAcceleration","acceleration");
+  brancherBoutonTactile("toucheSaut","saut");
+
+  document.getElementById("boutonDemarrer").addEventListener("click",lancerJeu);  })(); </script>  </body> </html>
